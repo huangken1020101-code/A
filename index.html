@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>代碼倖存者：完美修復版 (極致雲端存檔修復)</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1e1e1e; color: #d4d4d4; font-family: 'Segoe UI', sans-serif; touch-action: none; user-select: none; }
+        canvas { display: block; background-color: #202020; }
+        
+        #uiLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: none; }
+        .hud { position: absolute; padding: 10px; font-size: 18px; text-shadow: 1px 1px 3px #000; pointer-events: auto; font-weight: bold; background: rgba(0,0,0,0.5); border-radius: 8px;}
+        #topLeft { top: 10px; left: 10px; }
+        
+        button { background-color: #0e639c; color: white; border: none; padding: 10px 15px; font-weight: bold; font-size: 16px; cursor: pointer; border-radius: 5px; margin: 5px; box-shadow: 0 4px 0 #094771; transition: 0.1s; }
+        button:active { transform: translateY(4px); box-shadow: 0 0 0 #094771; }
+        
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(30, 30, 30, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 100; }
+        .hidden { display: none !important; }
+        h1 { color: #fff; font-size: 40px; margin: 10px 0; text-shadow: 0 0 10px #4c97ff; text-align: center;}
+
+        #compilerUI { flex-direction: row; align-items: stretch; background: #1e1e1e; width: 100%; }
+        .panel { padding: 15px; display: flex; flex-direction: column; border-right: 2px solid #333; overflow-y: auto; background: #252526; }
+        .panel-shop { flex: 0.25; }
+        .panel-inv { flex: 0.25; }
+        .panel-work { flex: 0.5; background: #1a1a1a; border-right: none; }
+        .panel-title { font-size: 18px; margin-bottom: 10px; border-bottom: 2px solid #444; padding-bottom: 8px; font-weight: bold; color: #ccc; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;}
+        
+        .dropzone { min-height: 100px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding: 10px; border: 2px dashed #444; border-radius: 8px; background: #1e1e1e; }
+        .dropzone.dragover { border-color: #ffbf00; background: #2a2a2a; }
+        
+        #activeZone { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 15px; padding: 15px; border: none; background: #2d2d2d; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); min-height: 60vh;}
+        
+        .script-stack { display: flex; flex-direction: column; gap: 2px; min-width: 210px; min-height: 60px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 2px solid #555; }
+        .script-stack.dragover { border-color: #4c97ff; background: rgba(76, 151, 255, 0.1); }
+
+        .scratch-block { padding: 10px 12px; border-radius: 6px; cursor: grab; font-size: 14px; font-weight: bold; color: white; display: flex; justify-content: space-between; align-items: center; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.3); }
+        .scratch-block:active { cursor: grabbing; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.2); transform: translateY(2px); }
+        
+        .type-event { background-color: #ffbf00; color: #333; border-top-left-radius: 15px; border-top-right-radius: 15px; } 
+        .type-action { background-color: #4c97ff; } 
+        .type-modifier { background-color: #59c059; } 
+        .type-upgrade { background-color: #8e44ad; } 
+        
+        .shop-item-btn { background: rgba(0,0,0,0.3); padding: 5px 8px; font-size: 12px; border-radius: 10px; box-shadow: none; color: white; cursor: pointer;}
+        .shop-item-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .refresh-btn { background-color: #d63c22; font-size: 14px; padding: 5px 10px; margin: 0; box-shadow: 0 2px 0 #9e2a16; }
+        .refresh-btn:active { box-shadow: 0 0 0 #9e2a16; transform: translateY(2px); }
+        .speed-btn { background-color: #333; font-size: 14px; padding: 5px 10px; margin-left: 10px; border-radius: 4px; border: 1px solid #555; box-shadow: none; }
+        .speed-btn:hover { background-color: #444; }
+
+        #compileError { background: #f44336; color: white; padding: 10px; border-radius: 5px; margin-top: 10px; font-weight: bold; text-align: center; }
+        .auth-input { padding: 12px; font-size: 18px; width: 320px; border-radius: 5px; border: 2px solid #555; background: #222; color: white; margin-bottom: 15px; text-align: center; outline: none; }
+        .auth-input:focus { border-color: #4c97ff; }
+
+        .upgrade-list { display: flex; flex-direction: column; gap: 10px; max-width: 450px; width: 100%; max-height: 55vh; overflow-y: auto; padding-right: 10px; }
+        .upgrade-list::-webkit-scrollbar { width: 8px; }
+        .upgrade-list::-webkit-scrollbar-thumb { background: #8e44ad; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="uiLayer">
+        <div id="topLeft" class="hud">
+            <div style="color:#ffbf00; display: flex; align-items: center;">
+                ▶ Wave: <span id="waveUi">1</span>
+                <button class="speed-btn" onclick="toggleSpeed()">⏩ <span id="speedMultiUi">1x</span></button>
+                <span id="saveIndicator" style="font-size: 13px; font-weight: normal; color: #aaa; margin-left: 10px;"></span>
+            </div>
+            <div style="color:#fff;">⏱ Time: <span id="timeUi">30</span>s</div>
+            <div style="color:#4ec9b0;">💎 Gems: <span id="gemUi">0</span></div>
+            <div style="color:#ffd700;">💰 Coins: <span id="coinUi">0</span></div>
+            <div style="color:#ff4c4c; font-size: 14px; margin-top:5px;">❤️ HP: <span id="hpUi">100/100</span></div>
+            <div style="color:#59c059; font-size: 14px; margin-top:5px;">👟 SPD: <span id="speedUi">4.0</span></div>
+            <div style="color:#00aaff; font-size: 14px; margin-top:5px;">📶 DATA: <span id="dataUi">100/100</span></div>
+        </div>
+    </div>
+
+    <div id="loginMenu" class="overlay">
+        <h1 style="color: #4ec9b0;">☁️ 系統存取驗證</h1>
+        <p style="text-align: center; font-size: 18px; color: #ccc;">請輸入您的開發者代號 (Email)<br>遊戲將自動啟動雙重同步機制</p>
+        <input type="text" id="emailInput" class="auth-input" placeholder="輸入Email (@st.tc.edu.tw 或 @gmail.com)">
+        <div id="loginError" style="color: #f44336; font-size: 16px; margin-bottom: 15px; display: none;">❌ 帳號格式錯誤！僅限 @st.tc.edu.tw 或 @gmail.com</div>
+        <button id="loginBtn" style="font-size: 20px; padding: 12px 40px; background-color: #4c97ff;">連線並進入</button>
+    </div>
+
+    <div id="mainMenu" class="overlay hidden">
+        <h1>[ 代碼倖存者 V6.3.1 ]</h1>
+        <p style="font-size: 18px; max-width: 450px; text-align: center; line-height: 1.5;">
+            <span style="color:#59c059">【雲端修復】</span>已修正嵌套陣列報錯，完美支援 Firebase 同步！<br>
+            <span id="currentUserDisplay" style="color: #4c97ff; font-weight:bold;"></span> 
+            <a href="#" id="logoutBtn" style="color: #f44336; font-size: 14px; text-decoration: none; margin-left: 10px;">[登出]</a><br>
+            <span id="cloudStatus" style="font-size: 16px; margin-top: 5px; display: inline-block;">讀取中...</span>
+        </p>
+
+        <div style="margin: 15px 0; color: #ffd700; font-size: 24px; font-weight: bold;">
+            💰 金幣: <span id="menuCoins">0</span>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; justify-content: center;">
+            <button id="btnNewGame" onclick="startGame(true)" style="font-size: 20px; padding: 10px 20px;">🆕 新遊戲</button>
+            <button id="btnContinueGame" onclick="startGame(false)" style="font-size: 20px; padding: 10px 20px; background-color:#59c059; display:none;">▶ 繼續未完成遊戲</button>
+        </div>
+        
+        <button onclick="openPermaUpgrades()" style="font-size: 20px; padding: 10px 20px; margin-top: 15px; background-color: #8e44ad;">⬆️ 場外系統升級</button>
+    </div>
+
+    <div id="permaUpgradeUI" class="overlay hidden">
+        <h1 style="color: #8e44ad;">⬆️ 場外系統升級</h1>
+        <div style="color: #ffd700; font-size: 24px; margin-bottom: 20px; font-weight: bold;">
+            💰 擁有金幣: <span id="upgradeCoins">0</span>
+        </div>
+        
+        <div class="upgrade-list">
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">❤️ 基礎血量 (+10)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlHp">0</span></div></div>
+                <button onclick="buyPermaUpgrade('hp')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costHp">50</span></button>
+            </div>
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">👟 基礎跑速 (+0.5)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlSpeed">0</span></div></div>
+                <button onclick="buyPermaUpgrade('speed')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costSpeed">50</span></button>
+            </div>
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">⚔️ 基礎傷害 (+1)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlDmg">0</span></div></div>
+                <button onclick="buyPermaUpgrade('damage')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costDmg">100</span></button>
+            </div>
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">📡 最大網速 (+5)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlMaxBw">0</span></div></div>
+                <button onclick="buyPermaUpgrade('maxBw')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costMaxBw">100</span></button>
+            </div>
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">📶 最大流量 (+20)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlMaxData">0</span></div></div>
+                <button onclick="buyPermaUpgrade('maxData')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costMaxData">80</span></button>
+            </div>
+            <div class="panel" style="flex-direction: row; justify-content: space-between; align-items: center; border-right: none; border-radius: 8px;">
+                <div><div style="font-size:18px; color:white; font-weight:bold;">🔋 流量回復加速 (+0.1)</div><div style="font-size:14px; color:#aaa;">當前等級: <span id="lvlDataRegen">0</span></div></div>
+                <button onclick="buyPermaUpgrade('dataRegen')" style="background-color:#ffbf00; color:#333; font-size:16px;">💰 <span id="costDataRegen">150</span></button>
+            </div>
+        </div>
+        <button onclick="closePermaUpgrades()" style="margin-top: 20px; font-size: 20px; padding: 10px 20px; background-color: #555;">🔙 返回主選單</button>
+    </div>
+
+    <div id="postWaveUI" class="overlay hidden">
+        <h1>Wave <span id="clearedWave"></span> 通關！</h1>
+        <div style="font-size: 80px; font-weight: bold; color: #ffbf00; margin: 20px 0;" id="bigCountdown">5</div>
+        <div><button onclick="openCompiler()" style="background-color: #ffbf00; color: #333;">進入模組商店</button><button onclick="skipToNextWave()">進入下一波</button></div>
+    </div>
+    <div id="compilerUI" class="overlay hidden">
+        <div class="panel panel-shop">
+            <div class="panel-title"><span>🛒 商店 (💎<span id="shopGems"></span>)</span><button id="btnRefresh" class="refresh-btn" onclick="refreshShop()">🔄 10💎</button></div>
+            <p style="font-size: 12px; color: #aaa; margin:0 0 10px 0;">通膨倍率: <span id="inflationUi">1.0</span>x</p>
+            <div id="shopList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+        <div class="panel panel-inv"><div class="panel-title">📦 庫存</div><div id="inventoryZone" class="dropzone" ondrop="dropInventory(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)"></div></div>
+        <div class="panel panel-work">
+            <div class="panel-title"><span>⚙️ 多線程工作區</span><span id="bwUi" style="color:#00aaff; font-size:16px;">📡 網速: 0 / 20</span><button onclick="compileAndRun()" style="background-color: #59c059; padding: 5px 15px; font-size: 16px; margin:0;">💾 保存並繼續戰鬥</button></div>
+            <div id="compileError" class="hidden"></div>
+            <div id="activeZone" ondrop="dropActiveZone(event)" ondragover="allowDrop(event)" ondragleave="dragLeave(event)"></div>
+        </div>
+    </div>
+    <div id="gameOverUI" class="overlay hidden">
+        <h1 style="color:#f44336;">系統崩潰</h1>
+        <p style="font-size: 18px; text-align: center;">你的代碼已毀損，單局進度已被清除。<br>但別擔心，<span style="color:#ffd700;">獲得的金幣已保存！</span></p>
+        <button onclick="location.reload()" style="font-size: 20px;">返回主畫面 (Reboot)</button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🌟 1. 遊戲核心變數與畫布設定
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize); resize();
+
+        let gameState = 'LOGIN'; 
+        let wave = 1, waveTimeLimit = 30 * 60, waveTimer = 0, blockIdCounter = 10;
+        let gems = 0, coins = 0; 
+        
+        let permaUpgrades = { hp: 0, speed: 0, damage: 0, maxBw: 0, maxData: 0, dataRegen: 0 };
+        let runData = null; 
+        let upgradeCosts = { hp: 50, speed: 50, damage: 100, maxBw: 100, maxData: 80, dataRegen: 150 };
+
+        let interWaveInterval = null;
+        let gameSpeed = 1; 
+        let shopRefreshCost = 10; 
+        let playerMaxBw = 20; let playerDataRegen = 0.2; 
+        let player, enemies = [], warnings = [], bullets = [], drops = [], mines = [], lasers = [], orbitals = [];
+        let activeScripts = []; 
+        let keys = {};
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        let joyActive = false, joyOrigin = {x:0, y:0}, joyPos = {x:0, y:0};
+        window.addEventListener('touchstart', e => { if(gameState !== 'PLAYING') return; joyActive = true; joyOrigin = {x: e.touches[0].clientX, y: e.touches[0].clientY}; joyPos = joyOrigin; });
+        window.addEventListener('touchmove', e => { if(joyActive) joyPos = {x: e.touches[0].clientX, y: e.touches[0].clientY}; });
+        window.addEventListener('touchend', () => joyActive = false);
+
+        // ==========================================
+        // 🌟 2. 替換成你自己的 Firebase Config 🌟
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDTYIxFK1hno76GNNrXZoqvqlvU_Pm6jVQ",
+            authDomain: "towerdefense-save.firebaseapp.com",
+            projectId: "towerdefense-save",
+            storageBucket: "towerdefense-save.firebasestorage.app",
+            messagingSenderId: "507422966076",
+            appId: "1:507422966076:web:986f6aae8bf4eb672d9e39"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let currentUser = localStorage.getItem('codeSurvivorUser_email');
+
+        function checkLogin() {
+            if (currentUser) {
+                document.getElementById('loginMenu').classList.add('hidden');
+                document.getElementById('mainMenu').classList.remove('hidden');
+                gameState = 'MENU';
+                loadGameData();
+            } else {
+                document.getElementById('loginMenu').classList.remove('hidden');
+                document.getElementById('mainMenu').classList.add('hidden');
+                gameState = 'LOGIN';
+            }
+        }
+
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            const email = document.getElementById('emailInput').value.trim().toLowerCase();
+            if (email.endsWith('@st.tc.edu.tw') || email.endsWith('@gmail.com')) {
+                localStorage.setItem('codeSurvivorUser_email', email); currentUser = email;
+                document.getElementById('loginError').style.display = 'none'; checkLogin();
+            } else { document.getElementById('loginError').style.display = 'block'; }
+        });
+        document.getElementById('logoutBtn').addEventListener('click', (e) => { e.preventDefault(); localStorage.removeItem('codeSurvivorUser_email'); location.reload(); });
+
+        // ==========================================
+        // 🌟 3. 極致雙重存檔邏輯 (Local 優先 + Firebase 同步)
+        // ==========================================
+        async function loadGameData() {
+            if (!currentUser) return;
+            document.getElementById('currentUserDisplay').innerText = `👤 開發者: ${currentUser}`;
+            document.getElementById('cloudStatus').innerHTML = "<span style='color:#ccc'>讀取資料中...</span>";
+            
+            let firebaseData = null;
+            let localData = null;
+
+            // 1. 讀取瀏覽器 LocalStorage
+            try {
+                const localStr = localStorage.getItem('codeSurvivor_save_' + currentUser);
+                if (localStr) localData = JSON.parse(localStr);
+            } catch (e) { console.warn("本地讀取失敗", e); }
+
+            // 2. 讀取 Firebase 雲端資料庫
+            try {
+                const docSnap = await db.collection("codeSurvivorSaves").doc(currentUser).get();
+                if (docSnap.exists) {
+                    firebaseData = docSnap.data();
+                }
+                document.getElementById('cloudStatus').innerHTML = "<span style='color:#59c059'>☁️ 雲端連線成功</span>";
+            } catch (e) { 
+                console.warn("Firebase 存取被拒或中斷:", e);
+                document.getElementById('cloudStatus').innerHTML = "<span style='color:#f44336'>❌ 雲端存取被拒 (僅啟用本地存檔)</span>";
+            }
+
+            // 3. 智慧比對時間戳記，取最新的一份
+            let finalData = localData || null;
+            if (firebaseData && firebaseData.timestamp) {
+                if (!localData || !localData.timestamp || firebaseData.timestamp > localData.timestamp) {
+                    finalData = firebaseData; 
+                }
+            }
+
+            if (finalData === localData && document.getElementById('cloudStatus').innerText.includes('成功')) {
+                db.collection("codeSurvivorSaves").doc(currentUser).set(finalData).catch(()=>{});
+            }
+
+            if (finalData) {
+                coins = finalData.coins || 0;
+                let pData = finalData.permaUpgrades || {};
+                permaUpgrades = { 
+                    hp: pData.hp || 0, speed: pData.speed || 0, damage: pData.damage || 0,
+                    maxBw: pData.maxBw || 0, maxData: pData.maxData || 0, dataRegen: pData.dataRegen || 0
+                };
+                runData = finalData.runData || null;
+            } else {
+                coins = 0; permaUpgrades = { hp: 0, speed: 0, damage: 0, maxBw: 0, maxData: 0, dataRegen: 0 }; runData = null;
+            }
+            
+            document.getElementById('menuCoins').innerText = coins;
+            if (runData) {
+                document.getElementById('btnContinueGame').style.display = 'inline-block';
+                document.getElementById('btnContinueGame').innerText = `▶ 繼續未完成遊戲 (Wave ${runData.wave})`;
+            } else {
+                document.getElementById('btnContinueGame').style.display = 'none';
+            }
+        }
+
+        function saveGameData() {
+            try {
+                if (!currentUser) return;
+                
+                let dataToSave = { 
+                    coins: coins, 
+                    permaUpgrades: permaUpgrades, 
+                    runData: null,
+                    timestamp: Date.now() // 絕對時間戳記
+                };
+                
+                if (gameState === 'PLAYING' || gameState === 'SHOP' || gameState === 'POST_WAVE') {
+                    let invBlocks = Array.from(document.getElementById('inventoryZone').children).map(b => b.dataset.id);
+                    let workStacks = [];
+                    // ✅ 修正點：將積木陣列包裝成物件，避免 Firebase 報錯
+                    document.querySelectorAll('.script-stack').forEach(stack => {
+                        let blocks = Array.from(stack.children).map(b => b.dataset.id);
+                        if(blocks.length > 0) workStacks.push({ stackBlocks: blocks }); 
+                    });
+                    
+                    dataToSave.runData = {
+                        wave, gems, shopRefreshCost, waveTimer, 
+                        inventory: invBlocks, workspace: workStacks, 
+                        maxBw: player ? player.maxBandwidth : playerMaxBw, 
+                        maxData: player ? player.maxData : 100, 
+                        dataRegen: player ? player.dataRegen : playerDataRegen,
+                        playerHp: player ? player.hp : 100
+                    };
+                } else if (gameState === 'MENU' && runData) {
+                    dataToSave.runData = runData;
+                }
+                
+                // 第一層防護：強制寫入 LocalStorage
+                localStorage.setItem('codeSurvivor_save_' + currentUser, JSON.stringify(dataToSave));
+                let ind = document.getElementById('saveIndicator');
+                if (ind && gameState === 'PLAYING') {
+                    ind.innerText = "💾 本地已存";
+                    ind.style.color = "#ccc";
+                }
+                
+                // 第二層防護：非同步寫入 Firebase 雲端
+                db.collection("codeSurvivorSaves").doc(currentUser).set(dataToSave)
+                .then(() => {
+                    if (ind && gameState === 'PLAYING') {
+                        ind.innerText = "☁️ 雲端已同步";
+                        ind.style.color = "#59c059";
+                        setTimeout(() => { ind.innerText = ""; }, 2000);
+                    }
+                })
+                .catch(err => {
+                    if (ind && gameState === 'PLAYING') {
+                        ind.innerText = "❌ 僅存於本地";
+                        ind.style.color = "#f44336";
+                    }
+                });
+
+            } catch (e) { console.error("打包存檔發生錯誤:", e); }
+        }
+
+        // ==========================================
+        // 🌟 自動存檔觸發機制
+        // ==========================================
+        setInterval(() => { if (gameState === 'PLAYING' || gameState === 'SHOP') saveGameData(); }, 3000);
+        window.addEventListener('beforeunload', () => { saveGameData(); });
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGameData(); });
+        window.addEventListener('pagehide', () => { saveGameData(); });
+
+        // ==========================================
+        // 🌟 場外升級系統 UI 控制
+        // ==========================================
+        function openPermaUpgrades() { document.getElementById('mainMenu').classList.add('hidden'); document.getElementById('permaUpgradeUI').classList.remove('hidden'); updatePermaUI(); }
+        function closePermaUpgrades() { document.getElementById('permaUpgradeUI').classList.add('hidden'); document.getElementById('mainMenu').classList.remove('hidden'); document.getElementById('menuCoins').innerText = coins; saveGameData(); }
+
+        function updatePermaUI() {
+            document.getElementById('upgradeCoins').innerText = coins;
+            ['hp', 'speed', 'damage', 'maxBw', 'maxData', 'dataRegen'].forEach(type => {
+                let lvlSpan = document.getElementById('lvl' + type.charAt(0).toUpperCase() + type.slice(1));
+                let costSpan = document.getElementById('cost' + type.charAt(0).toUpperCase() + type.slice(1));
+                if(lvlSpan) lvlSpan.innerText = permaUpgrades[type] || 0;
+                if(costSpan) costSpan.innerText = getPermaCost(type);
+            });
+        }
+
+        function getPermaCost(type) { return upgradeCosts[type] * ((permaUpgrades[type] || 0) + 1); }
+        function buyPermaUpgrade(type) {
+            let cost = getPermaCost(type);
+            if (coins >= cost) { coins -= cost; permaUpgrades[type] = (permaUpgrades[type] || 0) + 1; updatePermaUI(); saveGameData(); } 
+            else { alert("金幣不足！快去戰鬥中獲取吧。"); }
+        }
+
+        function applyPermaUpgrades() {
+            let baseHp = 100 + (permaUpgrades.hp || 0) * 10;
+            let baseSpeed = 4 + (permaUpgrades.speed || 0) * 0.5;
+            let damageBonus = (permaUpgrades.damage || 0) * 1;
+            let baseBw = 20 + (permaUpgrades.maxBw || 0) * 5;
+            let baseMaxData = 100 + (permaUpgrades.maxData || 0) * 20;
+            let baseDataRegen = 0.2 + (permaUpgrades.dataRegen || 0) * 0.1;
+            return { baseHp, baseSpeed, damageBonus, baseBw, baseMaxData, baseDataRegen };
+        }
+
+        // ==========================================
+        // 🌟 遊戲積木、資源設定與 UI 邏輯
+        // ==========================================
+        const shopDatabase = [
+            { id: 'ev_timer', type: 'event', label: '⏱️ 每 1 秒經過', cost: 0, bw: 1, data: 0 }, { id: 'ev_fast', type: 'event', label: '⚡ 每 0.5 秒', cost: 40, bw: 2, data: 0 }, { id: 'ev_3sec', type: 'event', label: '⏳ 每 3 秒', cost: 20, bw: 1, data: 0 }, { id: 'ev_hit', type: 'event', label: '🩸 受到傷害時', cost: 50, bw: 1, data: 0 },
+            { id: 'act_shoot', type: 'action', label: '🎯 發射子彈', cost: 30, bw: 2, data: 5 }, { id: 'act_shotgun', type: 'action', label: '💥 發射散彈', cost: 60, bw: 3, data: 15 }, { id: 'act_mine', type: 'action', label: '💣 放置地雷', cost: 40, bw: 2, data: 10 }, { id: 'act_orbit', type: 'action', label: '🌀 旋轉飛刀', cost: 70, bw: 3, data: 20 }, { id: 'act_laser', type: 'action', label: '⚡ 貫穿雷射', cost: 80, bw: 4, data: 25 }, { id: 'act_heal', type: 'action', label: '💚 恢復 5 血量', cost: 60, bw: 2, data: 40 },
+            { id: 'mod_dmg', type: 'modifier', label: '⚔️ 傷害 +5', cost: 20, bw: 1, data: 0 }, { id: 'mod_proj', type: 'modifier', label: '🔄 數量/寬度 +1', cost: 40, bw: 2, data: 0 }, { id: 'mod_pierce', type: 'modifier', label: '👻 穿透力 +1', cost: 35, bw: 1, data: 0 }, { id: 'mod_speed', type: 'modifier', label: '👟 跑速 +1', cost: 30, bw: 1, data: 0 },
+            { id: 'upg_bw', type: 'upgrade', label: '📡 擴充網速上限 +5', cost: 50, bw: 0, data: 0 }, { id: 'upg_data', type: 'upgrade', label: '🔋 流量回復加速', cost: 60, bw: 0, data: 0 }
+        ];
+
+        function getUsedBandwidth() { let used = 0; document.querySelectorAll('#activeZone .scratch-block').forEach(b => { let item = shopDatabase.find(i => i.id === b.dataset.id); if (item) used += (item.bw || 0); }); return used; }
+        function updateBandwidthUI() { let used = getUsedBandwidth(); let bwEl = document.getElementById('bwUi'); if(bwEl && player) { bwEl.innerText = `📡 網速用量: ${used} / ${player.maxBandwidth}`; bwEl.style.color = used > player.maxBandwidth ? '#f44336' : '#00aaff'; } }
+        function getDynamicCost(baseCost) { if (wave <= 3) return baseCost; return Math.floor(baseCost * Math.pow(1.1, wave - 3)); }
+        
+        function giveDefaultBlocks() {
+            document.getElementById('inventoryZone').innerHTML = ''; document.getElementById('activeZone').innerHTML = '';
+            let stack = document.createElement('div'); stack.className = 'script-stack dropzone'; stack.ondrop = dropStack; stack.ondragover = allowDrop; stack.ondragleave = dragLeave; stack.id = "default_stack";
+            document.getElementById('activeZone').appendChild(stack);
+            restoreBlock('ev_timer', null, stack); restoreBlock('act_shoot', null, stack);
+        }
+
+        function restoreBlock(id, zoneId, targetNode = null) {
+            let itemData = shopDatabase.find(i => i.id === id); if(!itemData) return;
+            let block = document.createElement('div'); block.id = "block_" + (++blockIdCounter); block.className = `scratch-block type-${itemData.type}`; block.draggable = true; block.ondragstart = drag; block.onclick = function() { toggleBlock(this); }; block.dataset.type = itemData.type; block.dataset.id = itemData.id;
+            let extraInfo = itemData.type !== 'upgrade' ? `<div style="font-size:12px; color:#000; font-weight:bold; margin-left: 10px; background:rgba(255,255,255,0.4); padding:2px 5px; border-radius:4px;">(📡${itemData.bw} 📶${itemData.data})</div>` : '';
+            block.innerHTML = `<div style="display:flex; justify-content:space-between; width:100%; align-items:center;"><span>${itemData.label}</span> ${extraInfo}</div>`;
+            if (targetNode) targetNode.appendChild(block); else if (zoneId) document.getElementById(zoneId).appendChild(block);
+            updateBandwidthUI();
+        }
+
+        function allowDrop(ev) { ev.preventDefault(); ev.stopPropagation(); ev.currentTarget.classList.add('dragover'); }
+        function dragLeave(ev) { ev.currentTarget.classList.remove('dragover'); }
+        function drag(ev) { ev.dataTransfer.setData("text", ev.target.id); }
+        function dropActiveZone(ev) { ev.preventDefault(); ev.stopPropagation(); ev.currentTarget.classList.remove('dragover'); let data = ev.dataTransfer.getData("text"); let el = document.getElementById(data); if(!el) return; let stack = document.createElement('div'); stack.className = 'script-stack dropzone'; stack.ondrop = dropStack; stack.ondragover = allowDrop; stack.ondragleave = dragLeave; stack.appendChild(el); document.getElementById('activeZone').appendChild(stack); cleanupStacks(); updateBandwidthUI(); }
+        function dropStack(ev) { ev.preventDefault(); ev.stopPropagation(); ev.currentTarget.classList.remove('dragover'); let data = ev.dataTransfer.getData("text"); let el = document.getElementById(data); if(!el) return; ev.currentTarget.appendChild(el); cleanupStacks(); updateBandwidthUI(); }
+        function dropInventory(ev) { ev.preventDefault(); ev.stopPropagation(); ev.currentTarget.classList.remove('dragover'); let data = ev.dataTransfer.getData("text"); let el = document.getElementById(data); if(!el) return; ev.currentTarget.appendChild(el); cleanupStacks(); updateBandwidthUI(); }
+        function cleanupStacks() { document.querySelectorAll('.script-stack').forEach(s => { if(s.children.length === 0 && s.id !== 'default_stack') s.remove(); }); }
+
+        function toggleBlock(el) {
+            let inv = document.getElementById('inventoryZone'), workspace = document.getElementById('activeZone');
+            if (el.parentElement === inv) {
+                if (el.dataset.type === 'event') {
+                    let stack = document.createElement('div'); stack.className = 'script-stack dropzone'; stack.ondrop = dropStack; stack.ondragover = allowDrop; stack.ondragleave = dragLeave; workspace.appendChild(stack); stack.appendChild(el);
+                } else {
+                    let firstStack = document.querySelector('.script-stack');
+                    if(!firstStack) { firstStack = document.createElement('div'); firstStack.className = 'script-stack dropzone'; firstStack.ondrop = dropStack; firstStack.ondragover = allowDrop; firstStack.ondragleave = dragLeave; workspace.appendChild(firstStack); }
+                    firstStack.appendChild(el);
+                }
+            } else { inv.appendChild(el); }
+            cleanupStacks(); updateBandwidthUI();
+        }
+
+        function buildScripts() {
+            let errorUI = document.getElementById('compileError'); let stacks = document.querySelectorAll('.script-stack'); let hasError = false; let tempScripts = []; let stats = applyPermaUpgrades();
+            if (player) player.speed = player.baseSpeed;
+            let totalBw = getUsedBandwidth(); let currentBwMax = player ? player.maxBandwidth : stats.baseBw;
+            if (totalBw > currentBwMax) { errorUI.innerText = `❌ 網速不足！當前用量 ${totalBw} 超出上限 ${currentBwMax}。`; errorUI.classList.remove('hidden'); return false; }
+
+            stacks.forEach((stack, index) => {
+                let blocks = Array.from(stack.children); if(blocks.length === 0) return; let head = blocks[0];
+                if(head.dataset.type !== 'event') { errorUI.innerText = `❌ 第 ${index+1} 根柱子錯誤：最上面必須是黃色「觸發事件」！`; errorUI.classList.remove('hidden'); hasError = true; return; }
+
+                let script = { event: head.dataset.id, timer: 0, delay: 60, actions: [], stats: { damage: 5 + stats.damageBonus, projectiles: 1, bulletSpeed: 8, pierce: 1 } };
+                if(script.event === 'ev_fast') script.delay = 30; if(script.event === 'ev_3sec') script.delay = 180;
+                let hasAction = false;
+                for(let i=1; i<blocks.length; i++) {
+                    let id = blocks[i].dataset.id, type = blocks[i].dataset.type;
+                    if (type === 'action') { script.actions.push(id); hasAction = true; }
+                    if (type === 'modifier') { if(id === 'mod_dmg') script.stats.damage += 5; if(id === 'mod_proj') script.stats.projectiles += 1; if(id === 'mod_pierce') script.stats.pierce += 1; if(id === 'mod_speed' && player) player.speed += 1.0; }
+                }
+                if(!hasAction && script.event !== 'ev_hit') { errorUI.innerText = `❌ 第 ${index+1} 根柱子錯誤：缺少藍色「動作」積木！`; errorUI.classList.remove('hidden'); hasError = true; }
+                if(!hasError) tempScripts.push(script);
+            });
+            if(hasError) return false; activeScripts = tempScripts; return true;
+        }
+
+        function compileAndRun() { 
+            if (buildScripts()) { 
+                document.getElementById('compilerUI').classList.add('hidden'); document.getElementById('uiLayer').style.display = 'block'; gameState = 'PLAYING'; saveGameData(); 
+                if(waveTimer >= waveTimeLimit || waveTimer === 0) { skipToNextWave(); } else { document.getElementById('postWaveUI').classList.add('hidden'); }
+            } 
+        }
+
+        function toggleSpeed() { gameSpeed++; if(gameSpeed > 3) gameSpeed = 1; document.getElementById('speedMultiUi').innerText = gameSpeed + 'x'; }
+
+        function updateHUD() {
+            document.getElementById('waveUi').innerText = wave; document.getElementById('timeUi').innerText = Math.ceil((waveTimeLimit - waveTimer) / 60);
+            document.getElementById('gemUi').innerText = gems; document.getElementById('shopGems').innerText = gems;
+            if(document.getElementById('coinUi')) document.getElementById('coinUi').innerText = coins;
+            document.getElementById('hpUi').innerText = player ? `${Math.ceil(player.hp)}/${player.maxHp}` : "100/100";
+            document.getElementById('speedUi').innerText = player ? player.speed.toFixed(1) : "4.0";
+            if(player) { document.getElementById('dataUi').innerText = `${Math.floor(player.data)}/${player.maxData}`; }
+        }
+
+        function spawnDrops(enemy) {
+            let count = Math.max(1, Math.floor(enemy.maxHp / 5));
+            for(let k=0; k < count; k++){ drops.push({ type: 'gem', x: enemy.x + (Math.random() - 0.5) * 30, y: enemy.y + (Math.random() - 0.5) * 30, radius: 5 }); if (Math.random() < 0.5) { drops.push({ type: 'coin', x: enemy.x + (Math.random() - 0.5) * 30, y: enemy.y + (Math.random() - 0.5) * 30, radius: 5 }); } }
+        }
+
+        function startGame(isNew) {
+            document.getElementById('mainMenu').classList.add('hidden'); let stats = applyPermaUpgrades();
+            if (isNew || !runData) {
+                wave = 1; waveTimer = 0; gems = 0; shopRefreshCost = 10; giveDefaultBlocks(); activeScripts = [];
+                player = { x: canvas.width/2, y: canvas.height/2, radius: 16, baseSpeed: stats.baseSpeed, speed: stats.baseSpeed, hp: stats.baseHp, maxHp: stats.baseHp, invincibleTimer: 0, waitingForData: false, maxBandwidth: stats.baseBw, data: stats.baseMaxData, maxData: stats.baseMaxData, dataRegen: stats.baseDataRegen };
+            } else {
+                wave = runData.wave; waveTimer = runData.waveTimer || 0; gems = runData.gems; shopRefreshCost = runData.shopRefreshCost;
+                document.getElementById('inventoryZone').innerHTML = ''; document.getElementById('activeZone').innerHTML = '';
+                if(runData.inventory) runData.inventory.forEach(id => restoreBlock(id, 'inventoryZone'));
+                
+                // ✅ 修正點：相容讀取新的物件結構與舊的陣列結構
+                if(runData.workspace) { 
+                    runData.workspace.forEach(stackObj => { 
+                        let stackIds = stackObj.stackBlocks ? stackObj.stackBlocks : stackObj; 
+                        let stack = document.createElement('div'); stack.className = 'script-stack dropzone'; stack.ondrop = dropStack; stack.ondragover = allowDrop; stack.ondragleave = dragLeave; document.getElementById('activeZone').appendChild(stack); stackIds.forEach(id => restoreBlock(id, null, stack)); 
+                    }); 
+                }
+                
+                if(runData.workspace && runData.workspace.length === 0 && runData.inventory && runData.inventory.length === 0){ giveDefaultBlocks(); }
+                activeScripts = []; let savedMaxData = runData.maxData || stats.baseMaxData;
+                player = { x: canvas.width/2, y: canvas.height/2, radius: 16, baseSpeed: stats.baseSpeed, speed: stats.baseSpeed, hp: runData.playerHp || stats.baseHp, maxHp: stats.baseHp, invincibleTimer: 0, waitingForData: false, maxBandwidth: runData.maxBw || stats.baseBw, data: savedMaxData, maxData: savedMaxData, dataRegen: runData.dataRegen || stats.baseDataRegen };
+            }
+            enemies = []; warnings = []; bullets = []; drops = []; mines = []; lasers = []; orbitals = []; 
+            if (buildScripts()) { document.getElementById('uiLayer').style.display = 'block'; gameState = 'PLAYING'; saveGameData(); } 
+            else { alert("腳本有誤，請先修復後再出擊！"); openCompiler(); }
+        }
+
+        function triggerPostWave() { gameState = 'POST_WAVE'; document.getElementById('clearedWave').innerText = wave; document.getElementById('postWaveUI').classList.remove('hidden'); wave++; waveTimer = 0; let cd = 5; document.getElementById('bigCountdown').innerText = cd; interWaveInterval = setInterval(() => { cd--; document.getElementById('bigCountdown').innerText = cd; if(cd <= 0) skipToNextWave(); }, 1000); saveGameData(); }
+        function skipToNextWave() { clearInterval(interWaveInterval); document.getElementById('postWaveUI').classList.add('hidden'); enemies = []; warnings = []; drops = []; mines = []; lasers = []; orbitals = []; waveTimer = 0; gameState = 'PLAYING'; saveGameData(); }
+
+        function openCompiler() {
+            clearInterval(interWaveInterval); document.getElementById('postWaveUI').classList.add('hidden'); document.getElementById('compilerUI').classList.remove('hidden'); document.getElementById('compileError').classList.add('hidden');
+            gameState = 'SHOP'; shopRefreshCost = getDynamicCost(10); document.getElementById('inflationUi').innerText = wave > 3 ? Math.pow(1.1, wave - 3).toFixed(2) : "1.0";
+            updateRefreshBtnUI(); populateShop(); updateBandwidthUI(); updateHUD();
+        }
+
+        function populateShop() {
+            let list = document.getElementById('shopList'); list.innerHTML = ''; let shopItems = shopDatabase.filter(i => i.cost > 0); let items = shopItems.sort(() => 0.5 - Math.random()).slice(0, 5);
+            items.forEach(item => { let currentCost = getDynamicCost(item.cost); let div = document.createElement('div'); div.className = 'scratch-block type-' + item.type; div.style.marginBottom = '5px'; let extraInfo = item.type !== 'upgrade' ? `<span style="font-size:12px; color:#000; font-weight:bold; margin-left:5px; background:rgba(255,255,255,0.4); padding:2px 5px; border-radius:4px;">(📡${item.bw} 📶${item.data})</span>` : ''; div.innerHTML = `<div style="display:flex; justify-content:space-between; width:100%; align-items:center;"><span>${item.label} ${extraInfo}</span><button class="shop-item-btn" onclick="buyItem('${item.id}', ${currentCost}, this)" ${gems < currentCost ? 'disabled' : ''}>💎 ${currentCost}</button></div>`; list.appendChild(div); });
+        }
+
+        function updateRefreshBtnUI() { let btn = document.getElementById('btnRefresh'); btn.innerText = `🔄 ${shopRefreshCost}💎`; btn.disabled = gems < shopRefreshCost; if(gems < shopRefreshCost) btn.style.opacity = '0.5'; else btn.style.opacity = '1'; }
+        function refreshShop() { if (gems >= shopRefreshCost) { gems -= shopRefreshCost; populateShop(); updateHUD(); shopRefreshCost = Math.floor(shopRefreshCost * 1.5); updateRefreshBtnUI(); } }
+
+        function buyItem(itemId, cost, btnEl) {
+            if (gems >= cost) { gems -= cost; btnEl.disabled = true; btnEl.innerText = "已購買"; btnEl.style.opacity = '0.5'; updateHUD();
+                if (itemId === 'upg_bw') { if(player) player.maxBandwidth += 5; } else if (itemId === 'upg_data') { if(player) player.dataRegen += 0.1; } else { restoreBlock(itemId, 'inventoryZone'); }
+                saveGameData(); updateBandwidthUI();
+            }
+        }
+
+        function triggerEvent(eventType) { activeScripts.forEach(script => { if(script.event === eventType) executeActions(script); }); }
+        function executeActions(script) {
+            if (player.waitingForData) return; 
+            for(let actionId of script.actions) {
+                let itemData = shopDatabase.find(i => i.id === actionId); let dataCost = itemData ? (itemData.data || 0) : 0;
+                if (player.data >= dataCost) {
+                    player.data -= dataCost;
+                    if (actionId === 'act_shoot') fireGun(script); if (actionId === 'act_shotgun') fireShotgun(script); if (actionId === 'act_mine') dropMine(script); if (actionId === 'act_laser') fireLaser(script); if (actionId === 'act_orbit') spawnOrbit(script); if (actionId === 'act_heal') player.hp = Math.min(player.maxHp, player.hp + 5);
+                    if (player.data <= 0) { player.data = 0; player.waitingForData = true; break; }
+                } else { player.waitingForData = true; break; }
+            }
+        }
+
+        function fireGun(script) { if (enemies.length === 0) return; let target = enemies.reduce((a, b) => Math.hypot(a.x-player.x, a.y-player.y) < Math.hypot(b.x-player.x, b.y-player.y) ? a : b); let baseAngle = Math.atan2(target.y - player.y, target.x - player.x); let spread = 0.2; for (let i = 0; i < script.stats.projectiles; i++) { let angle = baseAngle + (i - (script.stats.projectiles - 1) / 2) * spread; bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * script.stats.bulletSpeed, vy: Math.sin(angle) * script.stats.bulletSpeed, damage: script.stats.damage, pierce: script.stats.pierce, radius: 6, life: 100 }); } }
+        function fireShotgun(script) { if (enemies.length === 0) return; let target = enemies.reduce((a, b) => Math.hypot(a.x-player.x, a.y-player.y) < Math.hypot(b.x-player.x, b.y-player.y) ? a : b); let baseAngle = Math.atan2(target.y - player.y, target.x - player.x); let pCount = script.stats.projectiles * 3; let spread = 0.15; for (let i = 0; i < pCount; i++) { let angle = baseAngle + (i - (pCount - 1) / 2) * spread + (Math.random()-0.5)*0.1; bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * script.stats.bulletSpeed, vy: Math.sin(angle) * script.stats.bulletSpeed, damage: script.stats.damage, pierce: script.stats.pierce, radius: 4, life: 40 }); } }
+        function dropMine(script) { mines.push({ x: player.x, y: player.y, damage: script.stats.damage * 3, radius: 20 + script.stats.projectiles * 5, armedTimer: 30 }); }
+        function fireLaser(script) { if (enemies.length === 0) return; let target = enemies.reduce((a, b) => Math.hypot(a.x-player.x, a.y-player.y) < Math.hypot(b.x-player.x, b.y-player.y) ? a : b); let angle = Math.atan2(target.y - player.y, target.x - player.x); let width = 10 + script.stats.projectiles * 5; enemies.forEach(e => { let dX = e.x - player.x; let dY = e.y - player.y; let dist = Math.hypot(dX, dY); let diff = Math.abs(Math.atan2(dY, dX) - angle); if (diff > Math.PI) diff = 2 * Math.PI - diff; let perpDist = Math.sin(diff) * dist; if (Math.cos(diff) > 0 && perpDist < (width / 2) + e.radius) { e.hp -= script.stats.damage * 2; if (e.hp <= 0 && !e.dead) { e.dead = true; spawnDrops(e); } } }); lasers.push({ x: player.x, y: player.y, angle: angle, width: width, life: 15, maxLife: 15 }); }
+        function spawnOrbit(script) { orbitals.push({ angle: Math.random() * Math.PI * 2, dist: 50 + script.stats.projectiles * 15, life: 180, damage: script.stats.damage * 0.5, radius: 10 }); }
+        function spawnEnemy() { let ex, ey; let attempts = 0; do { ex = 30 + Math.random() * (canvas.width - 60); ey = 30 + Math.random() * (canvas.height - 60); attempts++; } while (player && Math.hypot(ex - player.x, ey - player.y) < 120 && attempts < 50); let waveScale = wave - 1; let scaledHp = 5 + Math.floor(waveScale * 6); let scaledSpeed = 1.5 + (waveScale * 0.15); warnings.push({ x: ex, y: ey, radius: 14, speed: scaledSpeed, hp: scaledHp, maxHp: scaledHp, timer: 90 }); }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+            waveTimer++; if (waveTimer >= waveTimeLimit) { triggerPostWave(); return; }
+            if (player.invincibleTimer > 0) player.invincibleTimer--;
+            
+            if (player) {
+                player.data = Math.min(player.maxData, player.data + player.dataRegen);
+                if (player.data <= 0 && !player.waitingForData) player.waitingForData = true;
+                if (player.waitingForData && player.data >= player.maxData) { player.waitingForData = false; }
+            }
+
+            let hasEnemies = enemies.length > 0 || warnings.length > 0;
+            activeScripts.forEach(script => { if(script.event.startsWith('ev_') && script.event !== 'ev_hit') { if (!hasEnemies || player.waitingForData) return; script.timer++; if(script.timer >= script.delay) { script.timer = 0; executeActions(script); } } });
+
+            if (joyActive) { let dx = joyPos.x - joyOrigin.x, dy = joyPos.y - joyOrigin.y; let dist = Math.hypot(dx, dy); if (dist > 0) { player.x += (dx/dist) * player.speed; player.y += (dy/dist) * player.speed; } } 
+            else { if (keys['w'] || keys['arrowup']) player.y -= player.speed; if (keys['s'] || keys['arrowdown']) player.y += player.speed; if (keys['a'] || keys['arrowleft']) player.x -= player.speed; if (keys['d'] || keys['arrowright']) player.x += player.speed; }
+            player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x)); player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+
+            if (Math.random() < 0.03 + (wave * 0.005)) spawnEnemy();
+
+            for (let i = warnings.length - 1; i >= 0; i--) { warnings[i].timer--; if (warnings[i].timer <= 0) { enemies.push({ x: warnings[i].x, y: warnings[i].y, radius: warnings[i].radius, speed: warnings[i].speed, hp: warnings[i].hp, maxHp: warnings[i].maxHp, dead: false }); warnings.splice(i, 1); } }
+            for (let i = mines.length - 1; i >= 0; i--) { let m = mines[i]; if (m.armedTimer > 0) { m.armedTimer--; continue; } for (let j = enemies.length - 1; j >= 0; j--) { let e = enemies[j]; if (Math.hypot(m.x - e.x, m.y - e.y) < m.radius + e.radius + 15) { enemies.forEach(ae => { if (Math.hypot(m.x - ae.x, m.y - ae.y) < 80) { ae.hp -= m.damage; if (ae.hp <= 0 && !ae.dead) { ae.dead = true; spawnDrops(ae); } } }); mines.splice(i, 1); break; } } }
+            for(let i = lasers.length - 1; i >= 0; i--) { lasers[i].life--; if(lasers[i].life <= 0) lasers.splice(i, 1); }
+            for (let i = orbitals.length - 1; i >= 0; i--) { let o = orbitals[i]; o.life--; o.angle += 0.08; o.x = player.x + Math.cos(o.angle) * o.dist; o.y = player.y + Math.sin(o.angle) * o.dist; for (let j = enemies.length - 1; j >= 0; j--) { let e = enemies[j]; if (Math.hypot(o.x - e.x, o.y - e.y) < o.radius + e.radius) { e.hp -= o.damage; o.life -= 5; if (e.hp <= 0 && !e.dead) { e.dead = true; spawnDrops(e); } } } if (o.life <= 0) orbitals.splice(i, 1); }
+            for (let i = bullets.length - 1; i >= 0; i--) { let b = bullets[i]; b.x += b.vx; b.y += b.vy; b.life--; let hit = false; for (let j = enemies.length - 1; j >= 0; j--) { let e = enemies[j]; if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) { e.hp -= b.damage; hit = true; b.pierce--; if (e.hp <= 0 && !e.dead) { e.dead = true; spawnDrops(e); } if (b.pierce <= 0) break; } } if (hit && b.pierce <= 0) bullets.splice(i, 1); else if (b.life <= 0 || b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) bullets.splice(i, 1); }
+
+            let tookDamage = false;
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i]; if (e.dead) { enemies.splice(i, 1); continue; }
+                let angle = Math.atan2(player.y - e.y, player.x - e.x); e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed;
+                if (player.invincibleTimer <= 0 && Math.hypot(e.x - player.x, e.y - player.y) < player.radius + e.radius) {
+                    player.hp -= 10; tookDamage = true; player.invincibleTimer = 30;
+                    if (player.hp <= 0) { gameState = 'GAMEOVER'; document.getElementById('gameOverUI').classList.remove('hidden'); runData = null; saveGameData(); }
+                }
+            }
+            if (tookDamage) triggerEvent('ev_hit');
+
+            for (let i = drops.length - 1; i >= 0; i--) { let d = drops[i]; let dist = Math.hypot(d.x - player.x, d.y - player.y); if (dist < 120) { let angle = Math.atan2(player.y - d.y, player.x - d.x); d.x += Math.cos(angle) * 8; d.y += Math.sin(angle) * 8; if (dist < player.radius) { if (d.type === 'gem') gems++; else if (d.type === 'coin') coins++; drops.splice(i, 1); } } }
+            if(gameSpeed === 1) updateHUD();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (gameState === 'LOGIN' || gameState === 'MENU') return;
+
+            warnings.forEach(w => { if (Math.floor(w.timer / 15) % 2 === 1) { ctx.beginPath(); ctx.arc(w.x, w.y, w.radius + 8, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255, 60, 60, 0.8)'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = 'rgba(255, 60, 60, 0.2)'; ctx.fill(); } });
+            mines.forEach(m => { ctx.fillStyle = m.armedTimer > 0 ? '#888' : '#e67e22'; ctx.beginPath(); ctx.arc(m.x, m.y, 8, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2); ctx.strokeStyle = m.armedTimer > 0 ? 'rgba(136,136,136,0.2)' : 'rgba(230, 126, 34, 0.2)'; ctx.lineWidth = 2; ctx.stroke(); });
+            lasers.forEach(l => { let alpha = l.life / l.maxLife; ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(l.angle); ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`; ctx.fillRect(0, -l.width/2, 2000, l.width); ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; ctx.fillRect(0, -l.width/4, 2000, l.width/2); ctx.restore(); });
+            orbitals.forEach(o => { ctx.fillStyle = '#9b59b6'; ctx.beginPath(); ctx.arc(o.x, o.y, o.radius, 0, Math.PI * 2); ctx.fill(); });
+            drops.forEach(d => { ctx.beginPath(); ctx.arc(d.x, d.y, d.radius, 0, Math.PI * 2); ctx.fillStyle = d.type === 'gem' ? '#4ec9b0' : '#ffd700'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); });
+
+            if (player && player.hp > 0) {
+                ctx.fillStyle = (player.invincibleTimer > 0 && Math.floor(Date.now() / 100) % 2 === 0) ? '#888' : '#4c97ff'; ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = 'black'; ctx.fillRect(player.x - 20, player.y - 30, 40, 6); ctx.fillStyle = '#2ecc71'; ctx.fillRect(player.x - 20, player.y - 30, 40 * (player.hp / player.maxHp), 6);
+                ctx.fillStyle = 'black'; ctx.fillRect(player.x - 20, player.y - 35, 40, 4); ctx.fillStyle = '#00aaff'; ctx.fillRect(player.x - 20, player.y - 35, 40 * (player.data / player.maxData), 4);
+                
+                if (player.waitingForData) { ctx.fillStyle = 'rgba(255, 60, 60, 0.9)'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('⚠️ 流量不足，等待回滿...', canvas.width/2, 60); }
+            }
+
+            enemies.forEach(e => { ctx.fillStyle = '#e74c3c'; ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2); ctx.fill(); ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 1.5; ctx.strokeStyle = 'black'; ctx.strokeText(Math.ceil(e.hp), e.x, e.y); ctx.fillStyle = 'white'; ctx.fillText(Math.ceil(e.hp), e.x, e.y); });
+            ctx.fillStyle = '#ffbf00'; bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fill(); });
+
+            if (joyActive && gameState === 'PLAYING') { ctx.beginPath(); ctx.arc(joyOrigin.x, joyOrigin.y, 40, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.stroke(); let dx = joyPos.x - joyOrigin.x, dy = joyPos.y - joyOrigin.y; let dist = Math.hypot(dx, dy); let drawX = joyPos.x, drawY = joyPos.y; if (dist > 40) { drawX = joyOrigin.x + (dx/dist)*40; drawY = joyOrigin.y + (dy/dist)*40; } ctx.beginPath(); ctx.arc(drawX, drawY, 20, 0, Math.PI*2); ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill(); }
+        }
+
+        function gameLoop() { for(let i=0; i<gameSpeed; i++) { update(); } draw(); requestAnimationFrame(gameLoop); }
+        checkLogin(); requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
